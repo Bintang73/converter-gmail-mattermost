@@ -1,14 +1,19 @@
 <!DOCTYPE html>
+
 <html lang="id">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Converter Mattermost ↔ Gmail Pro</title>
+<title>Converter Mattermost ↔ Gmail ↔ WhatsApp</title>
 
 <!-- Libraries -->
+
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
 <script src="https://cdn.jsdelivr.net/npm/turndown/dist/turndown.js"></script>
+
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+
 <script src="https://cdn.jsdelivr.net/npm/emoji-js/lib/emoji.min.js"></script>
 
 <style>
@@ -18,18 +23,15 @@ body {
   background:#0f172a;
   color:#fff;
 }
-
 .container {
   max-width:900px;
   margin:auto;
   padding:16px;
 }
-
 h1 {
   text-align:center;
   font-size:20px;
 }
-
 textarea {
   width:100%;
   min-height:140px;
@@ -39,13 +41,11 @@ textarea {
   margin:10px 0;
   font-size:14px;
 }
-
 .buttons {
   display:flex;
   gap:10px;
   flex-wrap:wrap;
 }
-
 button {
   flex:1;
   padding:10px;
@@ -54,10 +54,10 @@ button {
   cursor:pointer;
   font-weight:bold;
 }
-
-.md { background:#22c55e; color:#fff; }
-.html { background:#3b82f6; color:#fff; }
-.export { background:#f59e0b; color:#000; }
+.md { background:#22c55e; }
+.html { background:#3b82f6; }
+.wa { background:#25D366; color:#000; }
+.copy { background:#64748b; }
 
 .output, .preview {
   background:#1e293b;
@@ -66,41 +66,26 @@ button {
   margin-top:10px;
   overflow:auto;
 }
-
 .preview {
   background:#fff;
   color:#000;
 }
-
-/* code block */
-pre {
-  background:#111;
-  color:#0f0;
-  padding:10px;
-  border-radius:8px;
-  overflow:auto;
-}
-
-code {
-  background:#eee;
-  padding:2px 5px;
-  border-radius:4px;
-}
-
 </style>
+
 </head>
 
 <body>
 
 <div class="container">
-  <h1>Mattermost ↔ Gmail Converter</h1>
+  <h1>Mattermost ↔ Gmail ↔ WhatsApp Converter</h1>
 
-  <textarea id="input" placeholder="Masukkan Markdown / HTML..."></textarea>
+  <textarea id="input" placeholder="Masukkan Markdown / HTML / WhatsApp..."></textarea>
 
   <div class="buttons">
-    <button class="md" onclick="toHTML()">Markdown ➜ Gmail HTML</button>
-    <button class="html" onclick="toMD()">HTML ➜ Markdown</button>
-    <button class="export" onclick="exportEmail()">Export Gmail Template</button>
+    <button class="md" onclick="convert('html')">➜ Gmail HTML</button>
+    <button class="html" onclick="convert('markdown')">➜ Markdown</button>
+    <button class="wa" onclick="convert('wa')">➜ WhatsApp</button>
+    <button class="copy" onclick="copyOutput()">Copy</button>
   </div>
 
   <div class="output" id="output"></div>
@@ -112,79 +97,91 @@ const turndown = new TurndownService();
 const emoji = new EmojiConvertor();
 emoji.replace_mode = 'unified';
 
-// CONFIG MARKED (biar enter jadi <br>)
-marked.setOptions({
-  breaks: true
-});
+marked.setOptions({ breaks: true });
 
 // ===== EMOJI =====
 function convertEmoji(text) {
   return emoji.replace_colons(text);
 }
 
-// ===== NORMALIZE HTML (PENTING BANGET) =====
-function normalizeHTML(html) {
-  // rapihin paragraf biar ga terlalu jauh
-  html = html.replace(/<p>/g, '<p style="margin:0 0 10px;">');
-
-  // hapus <p> kosong
-  html = html.replace(/<p>\s*<\/p>/g, '');
-
-  return html;
+// ===== DETECT TYPE =====
+function detectType(text) {
+  if (text.includes("<") && text.includes(">")) return "html";
+  if (text.match(/[*_~`]/)) return "markdown";
+  return "whatsapp";
 }
 
-// ===== MARKDOWN ➜ HTML =====
-function toHTML() {
+// ===== WA → MARKDOWN =====
+function waToMD(text) {
+  return text
+    .replace(/\*(.*?)\*/g, '**$1**')
+    .replace(/_(.*?)_/g, '*$1*')
+    .replace(/~(.*?)~/g, '~~$1~~')
+    .replace(/• (.*)/g, '- $1');
+}
+
+// ===== HTML → MARKDOWN =====
+function htmlToMD(text) {
+  return turndown.turndown(DOMPurify.sanitize(text));
+}
+
+// ===== NORMALIZE → MARKDOWN =====
+function normalizeToMarkdown(input) {
+  let type = detectType(input);
+
+  if (type === "html") return htmlToMD(input);
+  if (type === "whatsapp") return waToMD(input);
+
+  return input;
+}
+
+// ===== MARKDOWN → HTML =====
+function mdToHTML(md) {
+  let html = marked.parse(md);
+  html = DOMPurify.sanitize(html);
+  return html.replace(/<p>/g, '<p style="margin:0 0 10px;">');
+}
+
+// ===== MARKDOWN → WHATSAPP =====
+function mdToWA(md) {
+  return md
+    .replace(/\*\*(.*?)\*\*/g, '*$1*')
+    .replace(/\*(.*?)\*/g, '_$1_')
+    .replace(/~~(.*?)~~/g, '~$1~')
+    .replace(/^#{1,6}\s*(.*)$/gm, '*$1*')
+    .replace(/^\s*[-*]\s+(.*)$/gm, '• $1')
+    .replace(/\[(.*?)\]\((.*?)\)/g, '$1 ($2)');
+}
+
+// ===== UNIVERSAL CONVERT =====
+function convert(target) {
   let input = document.getElementById("input").value;
 
   input = convertEmoji(input);
 
-  let html = marked.parse(input);
+  let md = normalizeToMarkdown(input);
 
-  html = DOMPurify.sanitize(html);
+  let result = "";
 
-  html = normalizeHTML(html);
+  if (target === "html") result = mdToHTML(md);
+  if (target === "markdown") result = md;
+  if (target === "wa") result = mdToWA(md);
 
-  document.getElementById("output").textContent = html;
-  document.getElementById("preview").innerHTML = html;
+  document.getElementById("output").textContent = result;
+
+  if (target === "html") {
+    document.getElementById("preview").innerHTML = result;
+  } else {
+    document.getElementById("preview").innerText = result;
+  }
 }
 
-// ===== HTML ➜ MARKDOWN =====
-function toMD() {
-  let input = document.getElementById("input").value;
-
-  input = DOMPurify.sanitize(input);
-
-  let md = turndown.turndown(input);
-
-  document.getElementById("output").textContent = md;
-  document.getElementById("preview").innerText = md;
-}
-
-// ===== EXPORT EMAIL (SUPER RAPI GMAIL) =====
-function exportEmail() {
-  let input = document.getElementById("input").value;
-
-  input = convertEmoji(input);
-
-  let html = marked.parse(input);
-
-  html = DOMPurify.sanitize(html);
-
-  html = normalizeHTML(html);
-
-  // TEMPLATE GMAIL FIX
-  let emailTemplate = `
-  <div style="font-family:Arial,Helvetica,sans-serif;
-              font-size:14px;
-              line-height:1.6;
-              color:#333;">
-    ${html}
-  </div>
-  `;
-
-  document.getElementById("output").textContent = emailTemplate;
-  document.getElementById("preview").innerHTML = emailTemplate;
+// ===== COPY =====
+function copyOutput() {
+  let text = document.getElementById("output").textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    alert("Copied!");
+  });
 }
 </script>
 
