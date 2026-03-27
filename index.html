@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Converter Mattermost ↔ Gmail Pro</title>
+
+<!-- Libraries -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/turndown/dist/turndown.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/emoji-js/lib/emoji.min.js"></script>
+
+<style>
+body {
+  margin:0;
+  font-family:system-ui;
+  background:#0f172a;
+  color:#fff;
+}
+
+.container {
+  max-width:900px;
+  margin:auto;
+  padding:16px;
+}
+
+h1 {
+  text-align:center;
+  font-size:20px;
+}
+
+textarea {
+  width:100%;
+  min-height:140px;
+  border-radius:12px;
+  border:none;
+  padding:12px;
+  margin:10px 0;
+  font-size:14px;
+}
+
+.buttons {
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+
+button {
+  flex:1;
+  padding:10px;
+  border:none;
+  border-radius:10px;
+  cursor:pointer;
+  font-weight:bold;
+}
+
+.md { background:#22c55e; color:#fff; }
+.html { background:#3b82f6; color:#fff; }
+.export { background:#f59e0b; color:#000; }
+
+.output, .preview {
+  background:#1e293b;
+  padding:12px;
+  border-radius:12px;
+  margin-top:10px;
+  overflow:auto;
+}
+
+.preview {
+  background:#fff;
+  color:#000;
+}
+
+/* code block */
+pre {
+  background:#111;
+  color:#0f0;
+  padding:10px;
+  border-radius:8px;
+  overflow:auto;
+}
+
+code {
+  background:#eee;
+  padding:2px 5px;
+  border-radius:4px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+  <h1>Mattermost ↔ Gmail Converter</h1>
+
+  <textarea id="input" placeholder="Masukkan Markdown / HTML..."></textarea>
+
+  <div class="buttons">
+    <button class="md" onclick="toHTML()">Markdown ➜ Gmail HTML</button>
+    <button class="html" onclick="toMD()">HTML ➜ Markdown</button>
+    <button class="export" onclick="exportEmail()">Export Gmail Template</button>
+  </div>
+
+  <div class="output" id="output"></div>
+  <div class="preview" id="preview"></div>
+</div>
+
+<script>
+const turndown = new TurndownService();
+const emoji = new EmojiConvertor();
+emoji.replace_mode = 'unified';
+
+// CONFIG MARKED (biar enter jadi <br>)
+marked.setOptions({
+  breaks: true
+});
+
+// ===== EMOJI =====
+function convertEmoji(text) {
+  return emoji.replace_colons(text);
+}
+
+// ===== NORMALIZE HTML (PENTING BANGET) =====
+function normalizeHTML(html) {
+  // rapihin paragraf biar ga terlalu jauh
+  html = html.replace(/<p>/g, '<p style="margin:0 0 10px;">');
+
+  // hapus <p> kosong
+  html = html.replace(/<p>\s*<\/p>/g, '');
+
+  return html;
+}
+
+// ===== MARKDOWN ➜ HTML =====
+function toHTML() {
+  let input = document.getElementById("input").value;
+
+  input = convertEmoji(input);
+
+  let html = marked.parse(input);
+
+  html = DOMPurify.sanitize(html);
+
+  html = normalizeHTML(html);
+
+  document.getElementById("output").textContent = html;
+  document.getElementById("preview").innerHTML = html;
+}
+
+// ===== HTML ➜ MARKDOWN =====
+function toMD() {
+  let input = document.getElementById("input").value;
+
+  input = DOMPurify.sanitize(input);
+
+  let md = turndown.turndown(input);
+
+  document.getElementById("output").textContent = md;
+  document.getElementById("preview").innerText = md;
+}
+
+// ===== EXPORT EMAIL (SUPER RAPI GMAIL) =====
+function exportEmail() {
+  let input = document.getElementById("input").value;
+
+  input = convertEmoji(input);
+
+  let html = marked.parse(input);
+
+  html = DOMPurify.sanitize(html);
+
+  html = normalizeHTML(html);
+
+  // TEMPLATE GMAIL FIX
+  let emailTemplate = `
+  <div style="font-family:Arial,Helvetica,sans-serif;
+              font-size:14px;
+              line-height:1.6;
+              color:#333;">
+    ${html}
+  </div>
+  `;
+
+  document.getElementById("output").textContent = emailTemplate;
+  document.getElementById("preview").innerHTML = emailTemplate;
+}
+</script>
+
+</body>
+</html>
