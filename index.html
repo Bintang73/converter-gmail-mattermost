@@ -1,18 +1,9 @@
 <!DOCTYPE html>
-
 <html lang="id">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Converter Mattermost ↔ Gmail ↔ WhatsApp</title>
-
-<!-- Libraries -->
-
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-
-<script src="https://cdn.jsdelivr.net/npm/turndown/dist/turndown.js"></script>
-
-<script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+<title>WhatsApp ⇄ Mattermost Converter</title>
 
 <script src="https://cdn.jsdelivr.net/npm/emoji-js/lib/emoji.min.js"></script>
 
@@ -24,7 +15,7 @@ body {
   color:#fff;
 }
 .container {
-  max-width:900px;
+  max-width:800px;
   margin:auto;
   padding:16px;
 }
@@ -44,7 +35,6 @@ textarea {
 .buttons {
   display:flex;
   gap:10px;
-  flex-wrap:wrap;
 }
 button {
   flex:1;
@@ -54,126 +44,107 @@ button {
   cursor:pointer;
   font-weight:bold;
 }
-.md { background:#22c55e; }
-.html { background:#3b82f6; }
+.mm { background:#22c55e; }
 .wa { background:#25D366; color:#000; }
 .copy { background:#64748b; }
 
-.output, .preview {
+.output {
   background:#1e293b;
   padding:12px;
   border-radius:12px;
   margin-top:10px;
-  overflow:auto;
-}
-.preview {
-  background:#fff;
-  color:#000;
+  white-space:pre-wrap;
 }
 </style>
-
 </head>
 
 <body>
 
 <div class="container">
-  <h1>Mattermost ↔ Gmail ↔ WhatsApp Converter</h1>
+  <h1>WhatsApp ⇄ Mattermost Converter</h1>
 
-  <textarea id="input" placeholder="Masukkan Markdown / HTML / WhatsApp..."></textarea>
+  <textarea id="input" placeholder="Masukkan teks WhatsApp atau Mattermost..."></textarea>
 
   <div class="buttons">
-    <button class="md" onclick="convert('html')">➜ Gmail HTML</button>
-    <button class="html" onclick="convert('markdown')">➜ Markdown</button>
-    <button class="wa" onclick="convert('wa')">➜ WhatsApp</button>
+    <button class="mm" onclick="convertToMM()">➜ Mattermost</button>
+    <button class="wa" onclick="convertToWA()">➜ WhatsApp</button>
     <button class="copy" onclick="copyOutput()">Copy</button>
   </div>
 
   <div class="output" id="output"></div>
-  <div class="preview" id="preview"></div>
 </div>
 
 <script>
-const turndown = new TurndownService();
 const emoji = new EmojiConvertor();
 emoji.replace_mode = 'unified';
-
-marked.setOptions({ breaks: true });
 
 // ===== EMOJI =====
 function convertEmoji(text) {
   return emoji.replace_colons(text);
 }
 
-// ===== DETECT TYPE =====
-function detectType(text) {
-  if (text.includes("<") && text.includes(">")) return "html";
-  if (text.match(/[*_~`]/)) return "markdown";
-  return "whatsapp";
+// ===== WA → MATTERMOST =====
+function waToMM(text) {
+  text = text.replace(/\*(\S(?:.*?\S)?)\*/g, '**$1**');
+  text = text.replace(/_(\S(?:.*?\S)?)_/g, '*$1*');
+  text = text.replace(/~(\S(?:.*?\S)?)~/g, '~~$1~~');
+  text = text.replace(/^[•\-]\s+(.*)/gm, '- $1');
+  return text;
 }
 
-// ===== WA → MARKDOWN =====
-function waToMD(text) {
-  return text
-    .replace(/\*(.*?)\*/g, '**$1**')
-    .replace(/_(.*?)_/g, '*$1*')
-    .replace(/~(.*?)~/g, '~~$1~~')
-    .replace(/• (.*)/g, '- $1');
+// ===== MATTERMOST → WA (FIXED) =====
+function mmToWA(text) {
+  // 1. Convert link dulu
+  text = text.replace(/\[(.*?)\]\((.*?)\)/g, '$1 ($2)');
+
+  // 2. Protect BOLD (**text**)
+  text = text.replace(/\*\*([\s\S]*?)\*\*/g, '%%BOLD%%$1%%END%%');
+
+  // 3. Italic (*text*)
+  text = text.replace(/\*(.*?)\*/g, '%%ITALIC%%$1%%ENDI%%');
+
+  // 4. Strikethrough
+  text = text.replace(/~~(.*?)~~/g, '~$1~');
+
+  // 5. Heading → bold
+  text = text.replace(/^#{1,6}\s*(.*)$/gm, '%%BOLD%%$1%%END%%');
+
+  // 6. List
+  text = text.replace(/^\s*[-*]\s+(.*)$/gm, '• $1');
+
+  // 7. Handle multiline bold (WA limitation)
+  text = text.replace(/%%BOLD%%([\s\S]*?)%%END%%/g, (m, content) => {
+    if (content.includes("\n")) {
+      return content
+        .split("\n")
+        .map(line => line.trim() ? `*${line.trim()}*` : "")
+        .join("\n");
+    }
+    return `*${content}*`;
+  });
+
+  // 8. Balikin italic
+  text = text.replace(/%%ITALIC%%(.*?)%%ENDI%%/g, '_$1_');
+
+  // 9. Rapihin newline
+  text = text.replace(/\n{3,}/g, '\n\n');
+
+  return text;
 }
 
-// ===== HTML → MARKDOWN =====
-function htmlToMD(text) {
-  return turndown.turndown(DOMPurify.sanitize(text));
-}
-
-// ===== NORMALIZE → MARKDOWN =====
-function normalizeToMarkdown(input) {
-  let type = detectType(input);
-
-  if (type === "html") return htmlToMD(input);
-  if (type === "whatsapp") return waToMD(input);
-
-  return input;
-}
-
-// ===== MARKDOWN → HTML =====
-function mdToHTML(md) {
-  let html = marked.parse(md);
-  html = DOMPurify.sanitize(html);
-  return html.replace(/<p>/g, '<p style="margin:0 0 10px;">');
-}
-
-// ===== MARKDOWN → WHATSAPP =====
-function mdToWA(md) {
-  return md
-    .replace(/\*\*(.*?)\*\*/g, '*$1*')
-    .replace(/\*(.*?)\*/g, '_$1_')
-    .replace(/~~(.*?)~~/g, '~$1~')
-    .replace(/^#{1,6}\s*(.*)$/gm, '*$1*')
-    .replace(/^\s*[-*]\s+(.*)$/gm, '• $1')
-    .replace(/\[(.*?)\]\((.*?)\)/g, '$1 ($2)');
-}
-
-// ===== UNIVERSAL CONVERT =====
-function convert(target) {
+// ===== CONVERT =====
+function convertToMM() {
   let input = document.getElementById("input").value;
-
   input = convertEmoji(input);
-
-  let md = normalizeToMarkdown(input);
-
-  let result = "";
-
-  if (target === "html") result = mdToHTML(md);
-  if (target === "markdown") result = md;
-  if (target === "wa") result = mdToWA(md);
-
+  let result = waToMM(input);
   document.getElementById("output").textContent = result;
+}
 
-  if (target === "html") {
-    document.getElementById("preview").innerHTML = result;
-  } else {
-    document.getElementById("preview").innerText = result;
-  }
+function convertToWA() {
+  let input = document.getElementById("input").value;
+  input = convertEmoji(input);
+  let result = mmToWA(input); 
+  document.getElementById("output").textContent = result;
 }
 
 // ===== COPY =====
