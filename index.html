@@ -97,7 +97,6 @@ button {
     <select id="sourceType">
       <option value="mm">Mattermost</option>
       <option value="wa">WhatsApp</option>
-      <option value="email">Email</option>
     </select>
     <select id="targetType">
       <option value="mm">Mattermost</option>
@@ -155,8 +154,8 @@ function mmToWA(text) {
   // 4. Strikethrough
   text = text.replace(/~~(.*?)~~/g, '~$1~');
 
-  // 5. Heading → bold
-  text = text.replace(/^#{1,6}\s*(.*)$/gm, '%%BOLD%%$1%%END%%');
+  // 5. Heading marker removal (MM -> plain line)
+  text = text.replace(/^#{1,6}\s*(.*)$/gm, '$1');
 
   // 6. List
   text = text.replace(/^\s*[-*]\s+(.*)$/gm, '• $1');
@@ -194,7 +193,7 @@ function waToMM(text) {
 // ===== TO EMAIL =====
 function mmToEmail(text) {
   text = text.replace(/\[(.*?)\]\((.*?)\)/g, '$1 ($2)');
-  text = text.replace(/^#{1,6}\s*(.*)$/gm, '*$1*');
+  text = text.replace(/^#{1,6}\s*(.*)$/gm, '$1');
   text = text.replace(/\*\*(.*?)\*\*/g, '*$1*');
   text = text.replace(/~~(.*?)~~/g, '~$1~');
   text = text.replace(/^\s*[-*]\s+(.*)$/gm, '- $1');
@@ -345,7 +344,7 @@ function mmToEmailHtml(text) {
   html = inlineCode.output;
 
   html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-  html = html.replace(/^#{1,6}\s*(.*)$/gm, '<strong>$1</strong>');
+  html = html.replace(/^#{1,6}\s*(.*)$/gm, '$1');
   html = html.replace(/\*\*([\s\S]*?)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/__([\s\S]*?)__/g, '<strong>$1</strong>');
   html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
@@ -414,14 +413,20 @@ function syncTargetOptions() {
   const targetSelect = document.getElementById("targetType");
   const waOption = targetSelect.querySelector('option[value="wa"]');
   const mmOption = targetSelect.querySelector('option[value="mm"]');
+  const emailOption = targetSelect.querySelector('option[value="email"]');
 
-  if (source === "email") {
-    waOption.disabled = true;
-    mmOption.disabled = true;
-    targetSelect.value = "email";
-  } else {
-    waOption.disabled = false;
-    mmOption.disabled = false;
+  waOption.disabled = source === "wa";
+  mmOption.disabled = source === "mm";
+  emailOption.disabled = false;
+
+  if (targetSelect.value === source) {
+    if (!waOption.disabled) {
+      targetSelect.value = "wa";
+    } else if (!mmOption.disabled) {
+      targetSelect.value = "mm";
+    } else {
+      targetSelect.value = "email";
+    }
   }
 }
 
@@ -432,17 +437,8 @@ function convertMessage() {
   const target = document.getElementById("targetType").value;
   input = convertEmoji(input);
 
-  if (source === "email" && target !== "email") {
-    setPlainOutput("Email hanya bisa dikonversi ke Email (tidak bisa ke WhatsApp atau Mattermost).");
-    return;
-  }
-
   if (source === target) {
-    if (target === "email") {
-      setHtmlOutput(emailToEmailHtml(input));
-    } else {
-      setPlainOutput(input);
-    }
+    setPlainOutput("Tidak bisa konversi ke format yang sama.");
     return;
   }
 
