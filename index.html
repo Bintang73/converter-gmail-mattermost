@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>WhatsApp ⇄ Mattermost Converter</title>
+<title>Text Converter</title>
 
 <script src="https://cdn.jsdelivr.net/npm/emoji-js/lib/emoji.min.js"></script>
 
@@ -14,10 +14,20 @@ body {
   background:#0f172a;
   color:#fff;
 }
+.brand-logo {
+  position:fixed;
+  top:20px;
+  left:20px;
+  width:140px;
+  height:auto;
+  z-index:20;
+  border-radius:8px;
+}
 .container {
   max-width:800px;
   margin:auto;
   padding:16px;
+  padding-top:96px;
 }
 h1 {
   text-align:center;
@@ -36,6 +46,18 @@ textarea {
   display:flex;
   gap:10px;
 }
+.selectors {
+  display:flex;
+  gap:10px;
+  margin-top:8px;
+}
+select {
+  flex:1;
+  border-radius:10px;
+  border:none;
+  padding:10px;
+  font-size:14px;
+}
 button {
   flex:1;
   padding:10px;
@@ -46,6 +68,7 @@ button {
 }
 .mm { background:#22c55e; }
 .wa { background:#25D366; color:#000; }
+.email { background:#60a5fa; color:#00111f; }
 .copy { background:#64748b; }
 
 .output {
@@ -55,19 +78,36 @@ button {
   margin-top:10px;
   white-space:pre-wrap;
 }
+.output.email-output {
+  white-space:normal;
+  line-height:1.45;
+}
 </style>
 </head>
 
 <body>
+<img class="brand-logo" src="idstar.png" alt="IDstar logo" />
 
 <div class="container">
-  <h1>WhatsApp ⇄ Mattermost Converter</h1>
+  <h1>Text Converter</h1>
 
-  <textarea id="input" placeholder="Masukkan teks WhatsApp atau Mattermost..."></textarea>
+  <textarea id="input" placeholder="Masukkan teks sesuai format asal..."></textarea>
+
+  <div class="selectors">
+    <select id="sourceType">
+      <option value="mm">Mattermost</option>
+      <option value="wa">WhatsApp</option>
+      <option value="email">Email</option>
+    </select>
+    <select id="targetType">
+      <option value="mm">Mattermost</option>
+      <option value="wa">WhatsApp</option>
+      <option value="email" selected>Email</option>
+    </select>
+  </div>
 
   <div class="buttons">
-    <button class="mm" onclick="convertToMM()">➜ Mattermost</button>
-    <button class="wa" onclick="convertToWA()">➜ WhatsApp</button>
+    <button class="wa" onclick="convertMessage()">Convert</button>
     <button class="copy" onclick="copyOutput()">Copy</button>
   </div>
 
@@ -77,19 +117,28 @@ button {
 <script>
 const emoji = new EmojiConvertor();
 emoji.replace_mode = 'unified';
+let lastOutputText = '';
+let lastOutputHtml = '';
+let lastOutputIsHtml = false;
 
 // ===== EMOJI =====
 function convertEmoji(text) {
   return emoji.replace_colons(text);
 }
 
-// ===== WA → MATTERMOST =====
-function waToMM(text) {
-  text = text.replace(/\*(\S(?:.*?\S)?)\*/g, '**$1**');
-  text = text.replace(/_(\S(?:.*?\S)?)_/g, '*$1*');
-  text = text.replace(/~(\S(?:.*?\S)?)~/g, '~~$1~~');
-  text = text.replace(/^[•\-]\s+(.*)/gm, '- $1');
-  return text;
+function escapeHtml(text) {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function htmlToPlainText(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html.replace(/<br\s*\/?>/gi, '\n');
+  return tmp.textContent || '';
 }
 
 // ===== MATTERMOST → WA (FIXED) =====
@@ -132,28 +181,324 @@ function mmToWA(text) {
   return text;
 }
 
-// ===== CONVERT =====
-function convertToMM() {
-  let input = document.getElementById("input").value;
-  input = convertEmoji(input);
-  let result = waToMM(input);
-  document.getElementById("output").textContent = result;
+// ===== WHATSAPP → MATTERMOST =====
+function waToMM(text) {
+  text = text.replace(/\*(\S(?:.*?\S)?)\*/g, '**$1**');
+  text = text.replace(/_(\S(?:.*?\S)?)_/g, '*$1*');
+  text = text.replace(/~(\S(?:.*?\S)?)~/g, '~~$1~~');
+  text = text.replace(/^[•\-]\s+(.*)/gm, '- $1');
+  text = text.replace(/\n{3,}/g, '\n\n');
+  return text;
 }
 
-function convertToWA() {
+// ===== TO EMAIL =====
+function mmToEmail(text) {
+  text = text.replace(/\[(.*?)\]\((.*?)\)/g, '$1 ($2)');
+  text = text.replace(/^#{1,6}\s*(.*)$/gm, '*$1*');
+  text = text.replace(/\*\*(.*?)\*\*/g, '*$1*');
+  text = text.replace(/~~(.*?)~~/g, '~$1~');
+  text = text.replace(/^\s*[-*]\s+(.*)$/gm, '- $1');
+  text = text.replace(/\n{3,}/g, '\n\n');
+  return text;
+}
+
+function waToEmail(text) {
+  text = text.replace(/\n{3,}/g, '\n\n');
+  return text;
+}
+
+function emailToEmail(text) {
+  return text;
+}
+
+function extractWithToken(text, regex, renderer, tokenPrefix) {
+  const store = [];
+  const output = text.replace(regex, (...args) => {
+    const token = `@@${tokenPrefix}${store.length}@@`;
+    store.push(renderer(...args));
+    return token;
+  });
+  return { output, store };
+}
+
+function restoreTokens(text, tokenPrefix, store) {
+  return text.replace(new RegExp(`@@${tokenPrefix}(\\d+)@@`, 'g'), (m, idx) => {
+    const i = Number(idx);
+    return Number.isInteger(i) && store[i] !== undefined ? store[i] : m;
+  });
+}
+
+function renderBlocksToHtml(text) {
+  const lines = text.split('\n');
+  let html = '';
+  let inUl = false;
+  let inOl = false;
+  let inQuote = false;
+
+  function closeAll() {
+    if (inUl) {
+      html += '</ul>';
+      inUl = false;
+    }
+    if (inOl) {
+      html += '</ol>';
+      inOl = false;
+    }
+    if (inQuote) {
+      html += '</blockquote>';
+      inQuote = false;
+    }
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (/^@@CODE\d+@@$/.test(trimmed)) {
+      closeAll();
+      html += `${trimmed}`;
+      continue;
+    }
+
+    const ulMatch = line.match(/^\s*[-*]\s+(.+)$/);
+    if (ulMatch) {
+      if (inOl) {
+        html += '</ol>';
+        inOl = false;
+      }
+      if (inQuote) {
+        html += '</blockquote>';
+        inQuote = false;
+      }
+      if (!inUl) {
+        html += '<ul>';
+        inUl = true;
+      }
+      html += `<li>${ulMatch[1]}</li>`;
+      continue;
+    }
+
+    const olMatch = line.match(/^\s*\d+\.\s+(.+)$/);
+    if (olMatch) {
+      if (inUl) {
+        html += '</ul>';
+        inUl = false;
+      }
+      if (inQuote) {
+        html += '</blockquote>';
+        inQuote = false;
+      }
+      if (!inOl) {
+        html += '<ol>';
+        inOl = true;
+      }
+      html += `<li>${olMatch[1]}</li>`;
+      continue;
+    }
+
+    const quoteMatch = line.match(/^\s*&gt;\s?(.*)$/);
+    if (quoteMatch) {
+      if (inUl) {
+        html += '</ul>';
+        inUl = false;
+      }
+      if (inOl) {
+        html += '</ol>';
+        inOl = false;
+      }
+      if (!inQuote) {
+        html += '<blockquote>';
+        inQuote = true;
+      }
+      html += quoteMatch[1] ? `${quoteMatch[1]}<br>` : '<br>';
+      continue;
+    }
+
+    closeAll();
+    if (trimmed) {
+      html += `${line}<br>`;
+    } else {
+      html += '<br>';
+    }
+  }
+
+  closeAll();
+  return html;
+}
+
+function mmToEmailHtml(text) {
+  let html = escapeHtml(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  const codeBlocks = extractWithToken(
+    html,
+    /```(?:[A-Za-z0-9_#+-]+\n)?([\s\S]*?)```/g,
+    (full, code) => `<pre><code>${code}</code></pre>`,
+    'CODE'
+  );
+  html = codeBlocks.output;
+
+  const inlineCode = extractWithToken(
+    html,
+    /`([^`\n]+?)`/g,
+    (full, code) => `<code>${code}</code>`,
+    'INLINE'
+  );
+  html = inlineCode.output;
+
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  html = html.replace(/^#{1,6}\s*(.*)$/gm, '<strong>$1</strong>');
+  html = html.replace(/\*\*([\s\S]*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/__([\s\S]*?)__/g, '<strong>$1</strong>');
+  html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  html = html.replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
+  html = html.replace(/~~([\s\S]*?)~~/g, '<s>$1</s>');
+  html = html.replace(/\n{3,}/g, '\n\n');
+  html = renderBlocksToHtml(html);
+  html = restoreTokens(html, 'INLINE', inlineCode.store);
+  html = restoreTokens(html, 'CODE', codeBlocks.store);
+  return html;
+}
+
+function waToEmailHtml(text) {
+  let html = escapeHtml(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  const codeBlocks = extractWithToken(
+    html,
+    /```(?:[A-Za-z0-9_#+-]+\n)?([\s\S]*?)```/g,
+    (full, code) => `<pre><code>${code}</code></pre>`,
+    'CODE'
+  );
+  html = codeBlocks.output;
+
+  const inlineCode = extractWithToken(
+    html,
+    /`([^`\n]+?)`/g,
+    (full, code) => `<code>${code}</code>`,
+    'INLINE'
+  );
+  html = inlineCode.output;
+
+  html = html.replace(/\*(\S(?:[\s\S]*?\S)?)\*/g, '<strong>$1</strong>');
+  html = html.replace(/_(\S(?:[\s\S]*?\S)?)_/g, '<em>$1</em>');
+  html = html.replace(/~(\S(?:[\s\S]*?\S)?)~/g, '<s>$1</s>');
+  html = html.replace(/\n{3,}/g, '\n\n');
+  html = renderBlocksToHtml(html);
+  html = restoreTokens(html, 'INLINE', inlineCode.store);
+  html = restoreTokens(html, 'CODE', codeBlocks.store);
+  return html;
+}
+
+function emailToEmailHtml(text) {
+  return escapeHtml(text).replace(/\n{3,}/g, '\n\n').replace(/\n/g, '<br>');
+}
+
+function setPlainOutput(text) {
+  const output = document.getElementById("output");
+  output.classList.remove("email-output");
+  output.textContent = text;
+  lastOutputText = text;
+  lastOutputHtml = '';
+  lastOutputIsHtml = false;
+}
+
+function setHtmlOutput(html) {
+  const output = document.getElementById("output");
+  output.classList.add("email-output");
+  output.innerHTML = html;
+  lastOutputHtml = html;
+  lastOutputText = htmlToPlainText(html);
+  lastOutputIsHtml = true;
+}
+
+function syncTargetOptions() {
+  const source = document.getElementById("sourceType").value;
+  const targetSelect = document.getElementById("targetType");
+  const waOption = targetSelect.querySelector('option[value="wa"]');
+  const mmOption = targetSelect.querySelector('option[value="mm"]');
+
+  if (source === "email") {
+    waOption.disabled = true;
+    mmOption.disabled = true;
+    targetSelect.value = "email";
+  } else {
+    waOption.disabled = false;
+    mmOption.disabled = false;
+  }
+}
+
+// ===== CONVERT =====
+function convertMessage() {
   let input = document.getElementById("input").value;
+  const source = document.getElementById("sourceType").value;
+  const target = document.getElementById("targetType").value;
   input = convertEmoji(input);
-  let result = mmToWA(input); 
-  document.getElementById("output").textContent = result;
+
+  if (source === "email" && target !== "email") {
+    setPlainOutput("Email hanya bisa dikonversi ke Email (tidak bisa ke WhatsApp atau Mattermost).");
+    return;
+  }
+
+  if (source === target) {
+    if (target === "email") {
+      setHtmlOutput(emailToEmailHtml(input));
+    } else {
+      setPlainOutput(input);
+    }
+    return;
+  }
+
+  if (target === "wa") {
+    if (source !== "mm") {
+      setPlainOutput("Ke WhatsApp hanya didukung dari Mattermost.");
+      return;
+    }
+    setPlainOutput(mmToWA(input));
+    return;
+  }
+
+  if (target === "mm") {
+    if (source !== "wa") {
+      setPlainOutput("Ke Mattermost hanya didukung dari WhatsApp.");
+      return;
+    }
+    setPlainOutput(waToMM(input));
+    return;
+  }
+
+  if (target === "email") {
+    if (source === "mm") {
+      setHtmlOutput(mmToEmailHtml(input));
+      return;
+    }
+    if (source === "wa") {
+      setHtmlOutput(waToEmailHtml(input));
+      return;
+    }
+    setHtmlOutput(emailToEmailHtml(input));
+  }
 }
 
 // ===== COPY =====
 function copyOutput() {
-  let text = document.getElementById("output").textContent;
-  navigator.clipboard.writeText(text).then(() => {
+  if (lastOutputIsHtml && navigator.clipboard && window.ClipboardItem) {
+    const item = new ClipboardItem({
+      'text/html': new Blob([lastOutputHtml], { type: 'text/html' }),
+      'text/plain': new Blob([lastOutputText], { type: 'text/plain' })
+    });
+    navigator.clipboard.write([item]).then(() => {
+      alert("Copied with formatting!");
+    }).catch(() => {
+      navigator.clipboard.writeText(lastOutputText).then(() => alert("Copied as plain text."));
+    });
+    return;
+  }
+
+  navigator.clipboard.writeText(lastOutputText).then(() => {
     alert("Copied!");
   });
 }
+
+document.getElementById("sourceType").addEventListener("change", syncTargetOptions);
+syncTargetOptions();
 </script>
 
 </body>
